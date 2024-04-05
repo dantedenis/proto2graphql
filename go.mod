@@ -1,6 +1,6 @@
 module github.com/dantedenis/proto2graphql
 
-go 1.19
+go 1.20
 
 require (
 	github.com/danielvladco/go-proto-gql v0.10.0
