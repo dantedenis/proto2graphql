@@ -2,16 +2,18 @@ package main
 
 import (
 	"flag"
+
 	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/danielvladco/go-proto-gql/pkg/generator"
-	"github.com/danielvladco/go-proto-gql/pkg/protoparser"
+	"github.com/dantedenis/go-proto-gql/pkg/generator"
+	"github.com/dantedenis/go-proto-gql/pkg/protoparser"
 	"github.com/vektah/gqlparser/v2/formatter"
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
@@ -27,11 +29,12 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 var (
+	flagSet     = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	extension   = flag.String("ext", generator.DefaultExtension, "Extension of the graphql file, Default: '.graphql'")
 	importPaths = arrayFlags{}
 	fileNames   = arrayFlags{}
 	svc         = flag.Bool("svc", false, "Use service annotations for nodes corresponding to a GRPC call")
 	merge       = flag.Bool("merge", false, "Merge all the proto files found in one directory into one graphql file")
-	extension   = flag.String("ext", generator.DefaultExtension, "Extension of the graphql file, Default: '.graphql'")
 )
 
 func main() {
@@ -40,10 +43,15 @@ func main() {
 	flag.Parse()
 	descs, err := protoparser.Parse(importPaths, fileNames)
 	fatal(err)
-	p, err := protogen.Options{}.New(&pluginpb.CodeGeneratorRequest{
+
+	protoFiles := generator.ResolveProtoFilesRecursively(descs).AsFileDescriptorProto()
+
+	genReq := &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: fileNames,
-		ProtoFile:      generator.ResolveProtoFilesRecursively(descs).AsFileDescriptorProto(),
-	})
+		ProtoFile:      removedDuplicate(protoFiles),
+	}
+
+	p, err := protogen.Options{}.New(genReq)
 	fatal(err)
 	gqlDesc, err := generator.NewSchemas(descs, *merge, *svc, p)
 	fatal(err)
@@ -93,4 +101,17 @@ func resolveGraphqlFilename(protoFileName string, merge bool, extension string) 
 	}
 
 	return strings.TrimSuffix(protoFileName, path.Ext(protoFileName)) + "." + extension
+}
+
+func removedDuplicate(arr []*descriptorpb.FileDescriptorProto) []*descriptorpb.FileDescriptorProto {
+	var result []*descriptorpb.FileDescriptorProto
+	m := make(map[string]struct{})
+	for _, a := range arr {
+		if _, ok := m[a.GetName()]; !ok {
+			result = append(result, a)
+		}
+		m[a.GetName()] = struct{}{}
+	}
+
+	return result
 }
